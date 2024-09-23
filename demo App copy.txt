@@ -1,0 +1,333 @@
+import React, { useState, useEffect } from 'react';
+import {
+  StyleSheet,
+  View,
+  Text,
+  PermissionsAndroid,
+  Platform,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+  SafeAreaView,
+  Dimensions,
+} from 'react-native';
+import RNBluetoothClassic, { BluetoothDevice } from 'react-native-bluetooth-classic';
+import { VictoryLine, VictoryChart, VictoryTheme } from 'victory-native';
+
+const { width, height } = Dimensions.get('window');
+
+const App = () => {
+  const [devices, setDevices] = useState<BluetoothDevice[]>([]);
+  const [paired, setPaired] = useState<BluetoothDevice[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState<BluetoothDevice>();
+  const [isConnected, setIsConnected] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [azimuthData, setAzimuthData] = useState<number[]>([]);
+  const [bearingData, setBearingData] = useState<number[]>([]);
+  const maxDataPoints = 100; // Maximum number of data points to keep
+  const downsampleFactor = 5; // Downsampling factor
+
+  const checkBluetoothEnabled = async () => {
+    try {
+      const enabled = await RNBluetoothClassic.isBluetoothEnabled();
+      if (!enabled) {
+        await RNBluetoothClassic.requestBluetoothEnabled();
+      }
+    } catch (error) {
+      console.error('Bluetooth Classic is not available on this device.');
+      Alert.alert('Error', 'Bluetooth Classic is not available on this device.');
+    }
+  };
+
+  const requestPermissions = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        ]);
+        return Object.values(granted).every(status => status === PermissionsAndroid.RESULTS.GRANTED);
+      } catch (err) {
+        console.warn(err);
+        Alert.alert('Permission Error', 'Failed to obtain Bluetooth permissions.');
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const startDeviceDiscovery = async () => {
+    console.log('Searching for devices...');
+    setScanning(true);
+    try {
+      const pairedDevices = await RNBluetoothClassic.getBondedDevices();
+      setPaired(pairedDevices);
+      const discoveredDevices = await RNBluetoothClassic.startDiscovery();
+      setDevices(discoveredDevices);
+    } catch (error) {
+      console.error('Error during device discovery:', error);
+      Alert.alert('Discovery Error', 'An error occurred during device discovery.');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const connectToDevice = async (device: BluetoothDevice) => {
+    try {
+      await device.connect({
+        connectorType: 'rfcomm',
+        DELIMITER: '\n',
+        DEVICE_CHARSET: Platform.OS === 'ios' ? 1536 : 'utf-8',
+      });
+      setSelectedDevice(device);
+      setIsConnected(true);
+      monitorData(device);
+    } catch (error) {
+      console.error('Error connecting to device:', error);
+      Alert.alert('Connection Error', 'Failed to connect to the device.');
+    }
+  };
+
+  const monitorData = (device: BluetoothDevice) => {
+    let dataReceived = false;
+    device.onDataReceived(({ data }) => {
+      console.log('Raw Data Received:', data);
+      parseData(data);
+      dataReceived = true;
+    });
+    setTimeout(() => {
+      if (!dataReceived) {
+        Alert.alert('No Data', 'This device is not sending any data.');
+        disconnect();
+      }
+    }, 5000);
+  };
+
+  const parseData = (data: string) => {
+    const numberRegex = /(?<=:\s)\d+(\.\d+)?/g;
+    const matches = data.match(numberRegex);
+    const values = matches ? matches.map(Number).filter(value => !isNaN(value)) : [];
+    console.log('Converted values:', values);
+    console.log('Type of values:', typeof values);
+    console.log('Type of values[0]:', typeof values[0]);
+
+    if (values.length >= 2) {
+      setAzimuthData(prevData => {
+        const updatedData = [...prevData, values[0]];
+        return updatedData.length > maxDataPoints
+          ? updatedData.slice(updatedData.length - maxDataPoints)
+          : updatedData;
+      });
+      setBearingData(prevData => {
+        const updatedData = [...prevData, values[1]];
+        return updatedData.length > maxDataPoints
+          ? updatedData.slice(updatedData.length - maxDataPoints)
+          : updatedData;
+      });
+    }
+  };
+
+  const updateGraph = () => {
+    const downsampledAzimuth = downsampleData(azimuthData, downsampleFactor);
+    const downsampledBearing = downsampleData(bearingData, downsampleFactor);
+
+    setAzimuthData(downsampledAzimuth);
+    setBearingData(downsampledBearing);
+  };
+
+  const downsampleData = (dataArray, downsampleFactor) => {
+    return dataArray.filter((_, index) => index % downsampleFactor === 0);
+  };
+
+  useEffect(() => {
+    const initializeBluetooth = async () => {
+      await checkBluetoothEnabled();
+      const permissionsGranted = await requestPermissions();
+      if (permissionsGranted) {
+        startDeviceDiscovery();
+      } else {
+        console.log('Bluetooth permissions denied');
+        Alert.alert('Permissions Denied', 'Bluetooth permissions are required to use this app.');
+      }
+    };
+    initializeBluetooth();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      updateGraph(); // Update the graph with downsampled data
+    }, 1000); // Update every second (adjust interval as needed)
+
+    return () => clearInterval(interval); // Clean up interval on unmount
+  }, [azimuthData, bearingData]);
+
+  const disconnect = async () => {
+    if (selectedDevice && isConnected) {
+      try {
+        await selectedDevice.disconnect();
+        setSelectedDevice(undefined);
+        setIsConnected(false);
+      } catch (error) {
+        console.error('Error disconnecting:', error);
+        Alert.alert('Error', 'Failed to disconnect from the device.');
+      }
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.headerText}>Bluetooth Data Display</Text>
+      <View style={styles.content}>
+        {!isConnected && (
+          <>
+            <TouchableOpacity
+              onPress={startDeviceDiscovery}
+              style={[styles.deviceButton, scanning && styles.disabledButton]}
+              disabled={scanning}
+            >
+              <Text style={styles.scanButtonText}>
+                {scanning ? 'Scanning...' : 'SCAN'}
+              </Text>
+            </TouchableOpacity>
+            {scanning && <ActivityIndicator size="large" color="#008CBA" />}
+            <Text>Paired Devices:</Text>
+            {paired.map((pair, i) => (
+              <View key={i} style={styles.deviceContainer}>
+                <View style={styles.deviceItem}>
+                  <Text style={styles.deviceName}>{pair.name}</Text>
+                  <Text style={styles.deviceInfo}>{pair.id}</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => connectToDevice(pair)}
+                  style={styles.connectButton}
+                >
+                  <Text style={styles.connectButtonText}>Connect</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <Text>Available Devices:</Text>
+            {devices.map((device, i) => (
+              <View key={i} style={styles.deviceContainer}>
+                <View style={styles.deviceItem}>
+                  <Text style={styles.deviceName}>{device.name}</Text>
+                  <Text style={styles.deviceInfo}>{device.id}</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => connectToDevice(device)}
+                  style={styles.connectButton}
+                >
+                  <Text style={styles.connectButtonText}>Connect</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </>
+        )}
+        {isConnected && (
+          <View style={styles.dataContainer}>
+            <TouchableOpacity
+              onPress={disconnect}
+              style={styles.deviceButton}
+            >
+              <Text style={styles.disconnectButtonText}>Disconnect</Text>
+            </TouchableOpacity>
+            <View style={styles.chartContainer}>
+              <Text style={styles.axisLabel}>Azimuth Data</Text>
+              <VictoryChart width={width * 0.9} height={height * 0.3} theme={VictoryTheme.material}>
+                <VictoryLine
+                  data={azimuthData.map((value, index) => ({ x: index, y: value }))}
+                  style={{ data: { stroke: 'purple' } }}
+                />
+              </VictoryChart>
+            </View>
+            <View style={styles.chartContainer}>
+              <Text style={styles.axisLabel}>Bearing Data</Text>
+              <VictoryChart width={width * 0.9} height={height * 0.3} theme={VictoryTheme.material}>
+                <VictoryLine
+                  data={bearingData.map((value, index) => ({ x: index, y: value }))}
+                  style={{ data: { stroke: 'orange' } }}
+                />
+              </VictoryChart>
+            </View>
+          </View>
+        )}
+      </View>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  headerText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  content: {
+    flex: 1,
+    width: width * 0.95,
+    alignItems: 'center',
+  },
+  deviceButton: {
+    backgroundColor: '#008CBA',
+    padding: 10,
+    borderRadius: 5,
+    margin: 10,
+  },
+  scanButtonText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  disabledButton: {
+    backgroundColor: '#ccc',
+  },
+  deviceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  deviceItem: {
+    flex: 1,
+  },
+  deviceName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  deviceInfo: {
+    fontSize: 14,
+  },
+  connectButton: {
+    backgroundColor: '#4CAF50',
+    padding: 5,
+    borderRadius: 5,
+    marginLeft: 10,
+  },
+  connectButtonText: {
+    color: '#fff',
+  },
+  dataContainer: {
+    flex: 1,
+    width: width * 0.95,
+    alignItems: 'center',
+  },
+  disconnectButtonText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  chartContainer: {
+    marginVertical: 10,
+    width: '100%',
+    alignItems: 'center',
+  },
+  axisLabel: {
+    fontSize: 18,
+    marginVertical: 5,
+  },
+});
+
+export default App;
