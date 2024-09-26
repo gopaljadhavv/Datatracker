@@ -331,3 +331,239 @@ const styles = StyleSheet.create({
 });
 
 export default App;
+
+
+import React, { useEffect, useState, useCallback } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet, Dimensions } from 'react-native';
+import { VictoryChart, VictoryLine, VictoryTheme, VictoryAxis } from 'victory-native';
+import { RouteProp } from '@react-navigation/native';
+
+type RootStackParamList = {
+  Home: undefined;
+  DataDisplay: { sensorType: SensorType };
+};
+
+type SensorType = 'Gyroscope' | 'Accelerometer';
+type SensorData = {
+  x: number;
+  y: number;
+  z: number;
+};
+
+const Stack = createStackNavigator<RootStackParamList>();
+const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
+
+const MAX_DATA_POINTS = 100; // More data points for smoother graphs
+
+const generateRandomMPU6050Data = (dataType: SensorType): SensorData => {
+  const randomValue = (min: number, max: number) => 
+    Number((Math.random() * (max - min) + min).toFixed(3));
+
+  switch (dataType) {
+    case 'Accelerometer':
+      return {
+        x: randomValue(-1, 1),
+        y: randomValue(-1, 1),
+        z: randomValue(-1, 1),
+      };
+    case 'Gyroscope':
+      return {
+        x: randomValue(-125, 125),
+        y: randomValue(-125, 125),
+        z: randomValue(-125, 125),
+      };
+  }
+};
+
+const HomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+  const sensors: SensorType[] = ['Gyroscope', 'Accelerometer'];
+
+  return (
+    <View style={darkStyles.container}>
+      <Text style={darkStyles.title}>Select Sensor Type</Text>
+      <FlatList
+        data={sensors}
+        keyExtractor={(item) => item}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={darkStyles.button}
+            onPress={() => navigation.navigate('DataDisplay', { sensorType: item })}
+          >
+            <Text style={darkStyles.buttonText}>{item}</Text>
+          </TouchableOpacity>
+        )}
+      />
+    </View>
+  );
+};
+
+const DataDisplayScreen: React.FC<{ route: { params: { sensorType: SensorType } } }> = ({ route }) => {
+  const { sensorType } = route.params;
+  const [sensorData, setSensorData] = useState<SensorData>(generateRandomMPU6050Data(sensorType));
+  const [dataHistory, setDataHistory] = useState<{ x: number[], y: number[], z: number[] }>({
+    x: [], y: [], z: []
+  });
+
+  const updateData = useCallback(() => {
+    const newData = generateRandomMPU6050Data(sensorType);
+    setSensorData(newData);
+
+    setDataHistory(prev => ({
+      x: [...prev.x, newData.x].slice(-MAX_DATA_POINTS),
+      y: [...prev.y, newData.y].slice(-MAX_DATA_POINTS),
+      z: [...prev.z, newData.z].slice(-MAX_DATA_POINTS),
+    }));
+  }, [sensorType]);
+
+  useEffect(() => {
+    const interval = setInterval(updateData, 100); // Fast refresh rate for smoother graph
+    return () => clearInterval(interval);
+  }, [updateData]);
+
+  const renderChart = (data: number[], label: string, currentValue: number) => (
+    <View style={darkStyles.chartContainer}>
+      <Text style={[darkStyles.axisLabel, { color: '#FFA500' }]}>{label} Axis</Text>
+      <VictoryChart
+        theme={VictoryTheme.material}
+        width={screenWidth}
+        height={screenHeight * 0.25}
+        padding={{ top: 0, bottom: 0, left: 0, right: 0 }}
+        domain={{ y: sensorType === 'Accelerometer' ? [-1, 1] : [-125, 125] }}
+      >
+        <VictoryAxis
+          dependentAxis
+          tickFormat={() => ''}
+          style={{
+            axis: { stroke: "transparent" }, // Remove axis line
+            grid: { stroke: '#808080', strokeDasharray: '4' }, // Stable grid lines in grey
+            tickLabels: { fill: '#FFA500', fontSize: 10 },
+          }}
+        />
+        <VictoryAxis
+          tickFormat={() => ''}
+          style={{
+            axis: { stroke: "transparent" }, // Remove axis line
+            grid: { stroke: '#808080', strokeDasharray: '4' }, // Stable grid lines in grey
+            ticks: { stroke: "transparent" },
+            tickLabels: { fill: "transparent" },
+          }}
+        />
+        <VictoryLine
+          data={data.map((y, index) => ({ x: index, y }))}
+          style={{
+            data: { stroke: '#FFA500', strokeWidth: 2 },
+          }}
+          interpolation="natural"  // Smooth the graph
+        />
+      </VictoryChart>
+      <Text style={darkStyles.currentValue}>{currentValue.toFixed(3)}</Text>
+    </View>
+  );
+
+  return (
+    <View style={darkStyles.container}>
+      {renderChart(dataHistory.x, 'X', sensorData.x)}
+      {renderChart(dataHistory.y, 'Y', sensorData.y)}
+      {renderChart(dataHistory.z, 'Z', sensorData.z)}
+    </View>
+  );
+};
+
+const App: React.FC = () => (
+  <SafeAreaProvider>
+    <NavigationContainer>
+      <Stack.Navigator
+        initialRouteName="Home"
+        screenOptions={{
+          headerStyle: { backgroundColor: '#121212' },
+          headerTintColor: '#ffffff',
+          headerTitleStyle: { fontWeight: 'bold' },
+        }}
+      >
+        <Stack.Screen 
+          name="Home" 
+          component={HomeScreen} 
+          options={{ title: 'Etherson' }} 
+        />
+        <Stack.Screen 
+          name="DataDisplay" 
+          component={DataDisplayScreen}
+          options={({ route }) => ({ 
+            title: `${route.params.sensorType} Data`
+          })}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  </SafeAreaProvider>
+);
+
+const darkStyles = StyleSheet.create({
+  container: {  
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#121212',
+    padding: 1,
+  },
+  title: {
+    fontSize: 24,
+    marginVertical: 10,
+    fontWeight: 'bold',
+    fontStyle: 'italic',
+    fontFamily: 'Times New Roman',
+    color: '#ffffff',
+  },
+  button: {
+    backgroundColor: '#1E88E5',
+    padding: 15,
+    borderRadius: 5,
+    marginVertical: 10,
+    width: 200,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 18,
+  },
+  chartContainer: {
+    padding: 0,
+    width: '100%',
+    height: screenHeight * 0.28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1E1E1E',
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.23,
+    shadowRadius: 2.62,
+    elevation: 4,
+  },
+  axisLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    position: 'absolute',
+    top: 5,
+    left: 10,
+    color: '#1E88E5', // Orange color for axis labels
+  },
+  currentValue: {
+    position: 'absolute',
+    top: 5,
+    right: 10,
+    fontSize: 14,
+    fontWeight: 'bold',
+    backgroundColor: '#333333', // Dark background for current value
+    padding: 5,
+    borderRadius: 5,
+    color: '#FFA500', // Orange color for current value text
+  },
+});
+
+export default App;
