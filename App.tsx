@@ -9,6 +9,8 @@ import SplashScreen from './screens/SplashScreen';
 import DeviceConnectionScreen from './screens/DeviceConnectionScreen';
 import DataDisplayScreen from './screens/DataDisplayScreen';
 import BluetoothManager from './screens/BluetoothManager';
+import CalculationScreen from './screens/CalculationScreen';
+import { SensorProvider } from './screens/SensorContext';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -16,7 +18,7 @@ const Tab = createBottomTabNavigator();
 const DataTabs = () => (
   <Tab.Navigator
     screenOptions={({ route }) => ({
-      tabBarStyle: { backgroundColor: '#1c2130' },
+      tabBarStyle: { height: 50, backgroundColor: '#1c2130' },
       tabBarActiveTintColor: '#FFA500', 
       tabBarInactiveTintColor: '#808080',
       headerStyle: { backgroundColor: '#1c2130' }, 
@@ -31,6 +33,8 @@ const DataTabs = () => (
           iconName = focused ? 'speedometer' : 'speedometer-medium';
         } else if (route.name === 'Temperature') {
           iconName = focused ? 'thermometer' : 'thermometer-lines';
+        } else if (route.name === 'Calculation') {
+          iconName = focused ? 'calculator' : 'calculator-variant';
         }
         return <MaterialCommunityIcons name={iconName || 'alert'} size={size} color={color} />;
       },
@@ -51,6 +55,11 @@ const DataTabs = () => (
       component={TemperatureScreen}
       options={{ title: 'Temperature' }}
     />
+    <Tab.Screen 
+      name="Calculation" 
+      component={CalculationScreen}
+      options={{ title: 'Calculation' }}
+    />
   </Tab.Navigator>
 );
 
@@ -64,6 +73,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initializeApp = async () => {
+      const startTime = Date.now();
       try {
         await BluetoothManager.initialize();
         setIsBluetoothReady(true);
@@ -74,31 +84,34 @@ const App: React.FC = () => {
           'Failed to initialize Bluetooth. Please ensure Bluetooth is enabled and try again.'
         );
       } finally {
-        setIsLoading(false);
+        const elapsedTime = Date.now() - startTime;
+        const remainingTime = Math.max(2000 - elapsedTime, 0);
+        setTimeout(() => setIsLoading(false), remainingTime);
       }
     };
 
-    const timer = setTimeout(initializeApp, 2000);
-    return () => clearTimeout(timer);
+    initializeApp();
   }, []);
 
   if (isLoading) {
-    return <SplashScreen />;
+    return <SplashScreen navigation={undefined}  />;
   }
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        <Stack.Navigator 
-          screenOptions={{
-            headerShown: false,
-            cardStyle: { backgroundColor: '#F0F0F0' }  
-          }}
-        >
-          <Stack.Screen name="DeviceConnection" component={DeviceConnectionScreen} />
-          <Stack.Screen name="DataTabs" component={DataTabs} />
-        </Stack.Navigator>
-      </NavigationContainer>
+      <SensorProvider>
+        <NavigationContainer>
+          <Stack.Navigator 
+            screenOptions={{
+              headerShown: false,
+              cardStyle: { backgroundColor: '#F0F0F0' }  
+            }}
+          >
+            <Stack.Screen name="DeviceConnection" component={DeviceConnectionScreen} />
+            <Stack.Screen name="DataTabs" component={DataTabs} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </SensorProvider>
     </SafeAreaProvider>
   );
 };

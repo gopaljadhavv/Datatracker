@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, SectionList } from 'react-native';
 import BluetoothManager from './BluetoothManager';
 import { BluetoothDevice } from 'react-native-bluetooth-classic';
 
@@ -11,19 +11,43 @@ const DeviceConnectionScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   useEffect(() => {
     fetchPairedDevices();
 
-    BluetoothManager.onDevicesFound((devices) => {
-      const paired = devices.filter(device => device.bonded);
-      const available = devices.filter(device => !device.bonded);
-      setPairedDevices(paired);
-      setAvailableDevices(available);
+    BluetoothManager.onDevicesFound((newDevices) => {
+      const paired = newDevices.filter(device => device.bonded);
+      const available = newDevices.filter(device => !device.bonded);
+      setPairedDevices(prevDevices => [...new Set([...prevDevices, ...paired])]);
+      setAvailableDevices(prevDevices => [...new Set([...prevDevices, ...available])]);
       setScanning(false);
     });
 
     BluetoothManager.onConnectionChange((connected) => {
       if (connected) {
         navigation.navigate('DataTabs');
+      } else {
+        Alert.alert(
+          'Connection Lost',
+          'The connection to the device was lost.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Reset the screen state
+                setPairedDevices([]);
+                setAvailableDevices([]);
+                setScanning(false);
+                fetchPairedDevices();
+                // Navigate back to DeviceConnection screen
+                navigation.navigate('DeviceConnection');
+              },
+            },
+          ]
+        );
       }
     });
+
+    return () => {
+      // Clean up on component unmount
+      BluetoothManager.disconnect();
+    };
   }, [navigation]);
 
   const fetchPairedDevices = async () => {
@@ -50,37 +74,19 @@ const DeviceConnectionScreen: React.FC<{ navigation: any }> = ({ navigation }) =
 
   const connectToDevice = async (device: BluetoothDevice) => {
     try {
-      // Check if the device is already paired
-      if (!device.bonded) {
-        // If not paired, initiate the pairing process
-        const paired = await BluetoothManager.pairDevice(device);
-        if (!paired) {
-          throw new Error('Failed to pair with the device');
-        }
-      }
-
-      // Now attempt to connect
       await BluetoothManager.connectToDevice(device);
-      // If connection is successful, you might want to navigate to the data screen
-      navigation.navigate('DataTabs');
     } catch (error) {
       console.error('Error connecting to device:', error);
       let errorMessage = 'Failed to connect to the device. Please try again.';
-      
       if (error instanceof Error) {
-        if (error.message.includes('Already attempting')) {
-          errorMessage = 'Already attempting to connect to this device. Please wait.';
-        } else if (error.message.includes('Connection timeout')) {
-          errorMessage = 'Connection attempt timed out. The device might be out of range.';
-        } else if (error.message.includes('out of range or turned off')) {
-          errorMessage = 'Connection failed. The device might be out of range or turned off.';
-        } else if (error.message.includes('Failed to pair')) {
-          errorMessage = 'Failed to pair with the device. Please try again or check your device settings.';
+        if (error.message.includes('read failed') || error.message.includes('socket might closed')) {
+          errorMessage = 'Connection lost. The device might be out of range or turned off. Please ensure the device is nearby and powered on, then try again.';
+        } else if (error.message.includes('Already attempting to connect')) {
+          errorMessage = 'A connection attempt is already in progress. Please wait a moment before trying again.';
+        } else {
+          errorMessage = error.message;
         }
-      } else {
-        errorMessage = 'An unknown error occurred';
       }
-      
       Alert.alert('Connection Error', errorMessage);
     }
   };
@@ -95,40 +101,43 @@ const DeviceConnectionScreen: React.FC<{ navigation: any }> = ({ navigation }) =
     </TouchableOpacity>
   );
 
+  const renderSectionHeader = ({ section: { title } }: { section: { title: string } }) => (
+    <View style={styles.sectionHeaderContainer}>
+      <View style={styles.sectionHeaderLine} />
+      <Text style={styles.sectionTitle}>{title}</Text>
+    </View>
+  );
+
+  const sections = [
+    { title: 'Paired Devices', data: pairedDevices },
+    ...(availableDevices.length > 0 ? [{ title: 'Available Devices', data: availableDevices }] : []),
+  ];
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Bluetooth Devices</Text>
-      
-      {/* <Text style={styles.sectionTitle}>Paired Devices</Text> */}
-      <FlatList
-        data={pairedDevices}
-        keyExtractor={(item) => `paired-${item.address}`}
-        renderItem={renderDeviceItem}
-        ListEmptyComponent={<Text style={styles.emptyListText}>No paired devices</Text>}
-      />
-      
-      <TouchableOpacity
-        onPress={scanForDevices}
-        style={[styles.scanButton, scanning && styles.disabledButton]}
-        disabled={scanning}
-      >
-        <Text style={styles.scanButtonText}>
-          {scanning ? 'Scanning...' : 'SCAN FOR AVAILABLE DEVICES'}
-        </Text>
-      </TouchableOpacity>
-      
-      {scanning && <ActivityIndicator size="large" color="#FFA500" />}
-      
-      {availableDevices.length > 0 && (
-        <>
-          <Text style={styles.sectionTitle}>Available Devices</Text>
-          <FlatList
-            data={availableDevices}
-            keyExtractor={(item) => `available-${item.address}`}
-            renderItem={renderDeviceItem}
-          />
-        </>
-      )}
+      <View style={styles.contentContainer}>
+        <Text style={styles.title}>Bluetooth Devices</Text>
+        
+        <TouchableOpacity
+          onPress={scanForDevices}
+          style={[styles.scanButton, scanning && styles.disabledButton]}
+          disabled={scanning}
+        >
+          <Text style={styles.scanButtonText}>
+            {scanning ? 'Scanning...' : 'SCAN FOR DEVICES'}
+          </Text>
+        </TouchableOpacity>
+        
+        {scanning && <ActivityIndicator size="large" color="#FFA500" />}
+        
+        <SectionList
+          sections={sections}
+          keyExtractor={(item, index) => `${item.address}-${index}`}
+          renderItem={renderDeviceItem}
+          renderSectionHeader={renderSectionHeader}
+          ListEmptyComponent={<Text style={styles.emptyListText}>No devices found</Text>}
+        />
+      </View>
     </View>
   );
 };
@@ -136,8 +145,12 @@ const DeviceConnectionScreen: React.FC<{ navigation: any }> = ({ navigation }) =
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
+    padding: 0,
     backgroundColor: '#1c2130',
+    paddingBottom: 10,
+  },
+  contentContainer: {
+    padding: 20,
   },
   title: {
     fontSize: 24,
@@ -145,18 +158,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 20,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginTop: 20,
-    marginBottom: 10,
-  },
   scanButton: {
     backgroundColor: '#FFA500',
     padding: 10,
     borderRadius: 5,
-    marginVertical: 20,
+    marginVertical: 10,
   },
   scanButtonText: {
     color: '#1c2130',
@@ -166,6 +172,26 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     backgroundColor: '#808080',
+  },
+  sectionHeaderContainer: {
+    marginTop: 10,
+    marginBottom: 10,
+    width: '100%',
+  },
+  sectionHeaderLine: {
+    borderTopWidth: 2,
+    borderTopColor: '#3d3d3d',
+    marginLeft: -20,
+    marginRight: -20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginTop: 10,
+    // backgroundColor: '#2a3040',
+    padding: 5,
+    borderRadius: 5,
   },
   deviceItem: {
     backgroundColor: '#2a3040',
@@ -186,6 +212,8 @@ const styles = StyleSheet.create({
     color: '#808080',
     fontSize: 14,
     fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 20,
   },
 });
 

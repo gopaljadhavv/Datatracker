@@ -2,9 +2,10 @@ import RNBluetoothClassic, {
   BluetoothDevice,
 } from 'react-native-bluetooth-classic';
 import {Platform, PermissionsAndroid} from 'react-native';
+import MPU6050Simulator from './Simulator';
 
 class BluetoothManager {
-  private connectionTimeout: number = 10000; // Default timeout in milliseconds
+
   private onDevicesFoundCallback:
     | ((devices: BluetoothDevice[]) => void)
     | null = null;
@@ -13,10 +14,17 @@ class BluetoothManager {
   private selectedDevice: BluetoothDevice | null = null;
   private isDiscovering: boolean = false;
   private isConnecting: boolean = false;
+  private onDataReceivedCallback: ((data: any) => void) | null = null;
+  private connectionCheckInterval: NodeJS.Timeout | null = null;
 
   async initialize() {
-    await this.checkBluetoothEnabled();
-    await this.requestPermissions();
+    try {
+      await this.checkBluetoothEnabled();
+      await this.requestPermissions();
+    } catch (error) {
+      console.error('Bluetooth initialization failed:', error);
+      throw new Error('Bluetooth is not available or permissions were not granted.');
+    }
   }
 
   private async checkBluetoothEnabled() {
@@ -69,9 +77,7 @@ class BluetoothManager {
         ...(discoveredDevices || []),
       ];
 
-      if (this.onDevicesFoundCallback) {
-        this.onDevicesFoundCallback(allDevices);
-      }
+      this.onDevicesFoundCallback?.(allDevices);
 
       return allDevices;
     } catch (error) {
@@ -84,28 +90,29 @@ class BluetoothManager {
 
   async connectToDevice(device: BluetoothDevice) {
     if (this.isConnecting) {
-      throw new Error('Already attempting to connect to a device');
+      throw new Error('A connection attempt is already in progress. Please wait or try again in sometime.');
     }
 
     this.isConnecting = true;
 
     try {
-      const connected = await Promise.race([
-        device.connect({
-          connectorType: 'rfcomm',
-          DELIMITER: '\n',
-          DEVICE_CHARSET: Platform.OS === 'ios' ? 1536 : 'utf-8',
-        }),
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Connection timeout')),
-            this.connectionTimeout,
-          ),
-        ),
-      ]);
+      let connected = false;
+      if (device.bonded) {
+        // For paired devices, attempt to connect directly
+        connected = await this.attemptConnection(device);
+      } else {
+        // For unpaired devices, attempt to pair first
+        const paired = await this.pairDevice(device);
+        if (paired) {
+          connected = await this.attemptConnection(device);
+        }
+      }
 
       if (connected) {
         console.log('Successfully connected to device');
+        this.selectedDevice = device;
+        this.monitorData(device);
+        this.startConnectionMonitoring();
         this.onConnectionChangeCallback?.(true);
         return true;
       } else {
@@ -114,20 +121,7 @@ class BluetoothManager {
     } catch (error) {
       console.error('Error connecting to device:', error);
       if (error instanceof Error) {
-        if (error.message.includes('Already attempting connection')) {
-          throw new Error('Already attempting to connect to this device');
-        } else if (error.message.includes('Connection timeout')) {
-          throw new Error('Connection attempt timed out');
-        } else if (
-          error instanceof
-          kjd.reactnative.bluetooth.conn.ConnectionFailedException
-        ) {
-          throw new Error(
-            'Connection failed. The device might be out of range or turned off',
-          );
-        } else {
-          throw new Error('Failed to connect to the device');
-        }
+        throw error;
       } else {
         throw new Error('Failed to connect to the device');
       }
@@ -136,23 +130,98 @@ class BluetoothManager {
     }
   }
 
+  private async attemptConnection(device: BluetoothDevice): Promise<boolean> {
+    return await Promise.race([
+      device.connect({
+        connectorType: 'rfcomm',
+        DELIMITER: '\n',
+        DEVICE_CHARSET: Platform.OS === 'ios' ? 1536 : 'utf-8',
+      }),
+      new Promise<boolean>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Connection timeout')),
+          30000, // 30 seconds timeout
+        ),
+      ),
+    ]);
+  }
+
+  private parseData(data: string) {
+    console.log('Parsing data:', data);
+    const accelerationMatch = data.match(/Acceleration X: ([-\d.]+), Y: ([-\d.]+), Z: ([-\d.]+) m\/s\^2/);
+    const rotationMatch = data.match(/Rotation X: ([-\d.]+), Y: ([-\d.]+), z: ([-\d.]+) rad\/s/);
+    const temperatureMatch = data.match(/Temperature: ([-\d.]+) degC/);
+    console.log('Acceleration Match:', accelerationMatch);
+    console.log('Rotation Match:', rotationMatch);
+    console.log('Temperature Match:', temperatureMatch);
+    if (accelerationMatch && rotationMatch && temperatureMatch) {
+      const parsedData = {
+        accel: {
+          x: parseFloat(accelerationMatch[1]),
+          y: parseFloat(accelerationMatch[2]),
+          z: parseFloat(accelerationMatch[3])
+        },
+        gyro: {
+          x: parseFloat(rotationMatch[1]),
+          y: parseFloat(rotationMatch[2]),
+          z: parseFloat(rotationMatch[3])
+        },
+        temp: parseFloat(temperatureMatch[1])
+      };
+      this.onDataReceivedCallback?.(parsedData);
+    } else {
+      console.error('Unable to parse data:', data);
+    }
+  }
+
   private monitorData(device: BluetoothDevice) {
-    device.onDataReceived(({data}) => {
-      // Parse and handle the received data here
-      console.log('Data received:', data);
-      // You can implement data parsing and update your state here
+    device.onDataReceived(({ data }) => {
+      console.log('Raw data received:', data.toString());
+      this.parseData(data.toString());
     });
+  }
+
+  private startConnectionMonitoring() {
+    if (this.connectionCheckInterval) {
+      clearInterval(this.connectionCheckInterval);
+    }
+
+    this.connectionCheckInterval = setInterval(async () => {
+      if (this.selectedDevice) {
+        try {
+          const isConnected = await this.selectedDevice.isConnected();
+          if (!isConnected) {
+            this.handleConnectionLoss();
+          }
+        } catch (error) {
+          console.error('Error checking connection status:', error);
+          this.handleConnectionLoss();
+        }
+      }
+    }, 5000); // Check every 5 seconds
+  }
+
+  private handleConnectionLoss() {
+    console.log('Connection lost');
+    this.selectedDevice = null;
+    if (this.connectionCheckInterval) {
+      clearInterval(this.connectionCheckInterval);
+    }
+    this.onConnectionChangeCallback?.(false);
   }
 
   async disconnect() {
     if (this.selectedDevice) {
       try {
         await this.selectedDevice.disconnect();
-        this.selectedDevice = null;
-        this.onConnectionChangeCallback?.(false);
       } catch (error) {
         console.error('Error disconnecting:', error);
-        throw new Error('Failed to disconnect from the device.');
+      } finally {
+        this.selectedDevice = null;
+        if (this.connectionCheckInterval) {
+          clearInterval(this.connectionCheckInterval);
+        }
+        this.onConnectionChangeCallback?.(false);
       }
     }
   }
@@ -177,17 +246,30 @@ class BluetoothManager {
   async pairDevice(device: BluetoothDevice): Promise<boolean> {
     try {
       if (Platform.OS === 'android') {
-        // For Android, we need to use the createBond method
-        return await (RNBluetoothClassic as any).createBond(device.address);
+        // For Android, we need to use the createBond method if available
+        if ('createBond' in RNBluetoothClassic) {
+          const bondState = await (RNBluetoothClassic as any).createBond(device.address);
+          console.log('Bond state after pairing attempt:', bondState);
+          return bondState === 'bonded';
+        } else {
+          console.warn('createBond method not available, assuming device is already paired');
+          return true;
+        }
       } else {
         // For iOS, pairing is typically handled by the OS
         // We'll assume it's already paired if we can see it
+        console.log('Skipping pairing step on iOS');
         return true;
       }
     } catch (error) {
       console.error('Error pairing device:', error);
-      throw new Error('Failed to pair with the device');
+      // Instead of throwing an error, we'll return false
+      return false;
     }
+  }
+
+  onDataReceived(callback: (data: any) => void) {
+    this.onDataReceivedCallback = callback;
   }
 }
 

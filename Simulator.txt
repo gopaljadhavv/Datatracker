@@ -5,7 +5,7 @@ class MPU6050Simulator {
   private accelX = 0;
   private accelY = 0;
   private accelZ = 0;
-  private temp = 25;
+  private temp = 50;
 
   private updateGyro() {
     this.gyroX += (Math.random() - 0.5) * 10;
