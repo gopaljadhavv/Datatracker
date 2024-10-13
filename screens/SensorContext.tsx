@@ -1,9 +1,12 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import BluetoothManager from './BluetoothManager';
+import MPU6050Simulator from './Simulator';
 
 interface SensorData {
   gyro: { x: number; y: number; z: number };
   accel: { x: number; y: number; z: number };
+  tilt: { x: number; y: number };
+  zStroke: number;
   temp: number;
 }
 
@@ -17,6 +20,8 @@ export const SensorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [sensorData, setSensorData] = useState<SensorData>({
     gyro: { x: 0, y: 0, z: 0 },
     accel: { x: 0, y: 0, z: 0 },
+    tilt: { x: 0, y: 0 },
+    zStroke: 0,
     temp: 0,
   });
 
@@ -28,7 +33,7 @@ export const SensorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     BluetoothManager.onDataReceived(handleDataReceived);
 
     return () => {
-      BluetoothManager.onDataReceived(() => {});
+      BluetoothManager.onDataReceived(() => {}); // Ensure this properly cleans up
     };
   }, []);
 
@@ -41,7 +46,7 @@ export const SensorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
 export const useSensorData = () => {
   const context = useContext(SensorContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useSensorData must be used within a SensorProvider');
   }
   return context;

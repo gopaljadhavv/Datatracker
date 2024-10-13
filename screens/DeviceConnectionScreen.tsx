@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, SectionList } from 'react-native';
+import { View, Text, Dimensions, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, SectionList } from 'react-native';
 import BluetoothManager from './BluetoothManager';
 import { BluetoothDevice } from 'react-native-bluetooth-classic';
+
+
+const { width, height } = Dimensions.get('window');
 
 const DeviceConnectionScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [pairedDevices, setPairedDevices] = useState<BluetoothDevice[]>([]);
@@ -9,6 +12,7 @@ const DeviceConnectionScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
+    // console.log('DeviceConnectionScreen useEffect triggered');
     fetchPairedDevices();
 
     BluetoothManager.onDevicesFound((newDevices) => {
@@ -35,8 +39,8 @@ const DeviceConnectionScreen: React.FC<{ navigation: any }> = ({ navigation }) =
                 setAvailableDevices([]);
                 setScanning(false);
                 fetchPairedDevices();
-                // Navigate back to DeviceConnection screen
-                navigation.navigate('DeviceConnection');
+                // Navigate back to DeviceConnection screen if connection is lost
+                navigation.replace('DeviceConnection');
               },
             },
           ]
@@ -147,10 +151,12 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 0,
     backgroundColor: '#1c2130',
-    paddingBottom: 10,
+    
+    paddingBottom: 100,
   },
   contentContainer: {
     padding: 20,
+    height:height,
   },
   title: {
     fontSize: 24,

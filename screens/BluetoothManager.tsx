@@ -2,10 +2,8 @@ import RNBluetoothClassic, {
   BluetoothDevice,
 } from 'react-native-bluetooth-classic';
 import {Platform, PermissionsAndroid} from 'react-native';
-import MPU6050Simulator from './Simulator';
 
 class BluetoothManager {
-
   private onDevicesFoundCallback:
     | ((devices: BluetoothDevice[]) => void)
     | null = null;
@@ -23,7 +21,9 @@ class BluetoothManager {
       await this.requestPermissions();
     } catch (error) {
       console.error('Bluetooth initialization failed:', error);
-      throw new Error('Bluetooth is not available or permissions were not granted.');
+      throw new Error(
+        'Bluetooth is not available or permissions were not granted.',
+      );
     }
   }
 
@@ -90,7 +90,9 @@ class BluetoothManager {
 
   async connectToDevice(device: BluetoothDevice) {
     if (this.isConnecting) {
-      throw new Error('A connection attempt is already in progress. Please wait or try again in sometime.');
+      throw new Error(
+        'A connection attempt is already in progress. Please wait or try again in sometime.',
+      );
     }
 
     this.isConnecting = true;
@@ -140,34 +142,39 @@ class BluetoothManager {
       new Promise<boolean>((_, reject) =>
         setTimeout(
           () => reject(new Error('Connection timeout')),
-          30000, // 30 seconds timeout
+          5000, // 30 seconds timeout
         ),
       ),
     ]);
   }
 
   private parseData(data: string) {
-    console.log('Parsing data:', data);
-    const accelerationMatch = data.match(/Acceleration X: ([-\d.]+), Y: ([-\d.]+), Z: ([-\d.]+) m\/s\^2/);
-    const rotationMatch = data.match(/Rotation X: ([-\d.]+), Y: ([-\d.]+), z: ([-\d.]+) rad\/s/);
-    const temperatureMatch = data.match(/Temperature: ([-\d.]+) degC/);
-    console.log('Acceleration Match:', accelerationMatch);
-    console.log('Rotation Match:', rotationMatch);
-    console.log('Temperature Match:', temperatureMatch);
-    if (accelerationMatch && rotationMatch && temperatureMatch) {
+    // console.log('Parsing data:', data);
+
+    const matches = data.match(
+      /\$gyroX:([-+]?\d*\.?\d+),gyroY:([-+]?\d*\.?\d+),gyroZ:([-+]?\d*\.?\d+),accX:([-+]?\d*\.?\d+),accY:([-+]?\d*\.?\d+),accZ:([-+]?\d*\.?\d+),tiltX\(degree\):([-+]?\d*\.?\d+),tiltY\(degree\):([-+]?\d*\.?\d+),zStroke\(m\):([-+]?\d*\.?\d+),temperature:([-+]?\d*\.?\d+)&/,
+    );
+
+    if (matches) {
       const parsedData = {
-        accel: {
-          x: parseFloat(accelerationMatch[1]),
-          y: parseFloat(accelerationMatch[2]),
-          z: parseFloat(accelerationMatch[3])
-        },
         gyro: {
-          x: parseFloat(rotationMatch[1]),
-          y: parseFloat(rotationMatch[2]),
-          z: parseFloat(rotationMatch[3])
+          x: parseFloat(matches[1]),
+          y: parseFloat(matches[2]),
+          z: parseFloat(matches[3]),
         },
-        temp: parseFloat(temperatureMatch[1])
+        accel: {
+          x: parseFloat(matches[4]),
+          y: parseFloat(matches[5]),
+          z: parseFloat(matches[6]),
+        },
+        tilt: {
+          x: parseFloat(matches[7]),
+          y: parseFloat(matches[8]),
+        },
+        zStroke: parseFloat(matches[9]),
+        temp: parseFloat(matches[10]), // Correctly capturing temperature
       };
+
       this.onDataReceivedCallback?.(parsedData);
     } else {
       console.error('Unable to parse data:', data);
@@ -175,8 +182,8 @@ class BluetoothManager {
   }
 
   private monitorData(device: BluetoothDevice) {
-    device.onDataReceived(({ data }) => {
-      console.log('Raw data received:', data.toString());
+    device.onDataReceived(({data}) => {
+      // console.log('Raw data received:', data.toString());
       this.parseData(data.toString());
     });
   }
@@ -248,11 +255,15 @@ class BluetoothManager {
       if (Platform.OS === 'android') {
         // For Android, we need to use the createBond method if available
         if ('createBond' in RNBluetoothClassic) {
-          const bondState = await (RNBluetoothClassic as any).createBond(device.address);
+          const bondState = await (RNBluetoothClassic as any).createBond(
+            device.address,
+          );
           console.log('Bond state after pairing attempt:', bondState);
           return bondState === 'bonded';
         } else {
-          console.warn('createBond method not available, assuming device is already paired');
+          console.warn(
+            'createBond method not available, assuming device is already paired',
+          );
           return true;
         }
       } else {

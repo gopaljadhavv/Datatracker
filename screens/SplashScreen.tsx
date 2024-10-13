@@ -1,14 +1,23 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { StackNavigationProp } from '@react-navigation/stack';
 
-const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+type RootStackParamList = {
+  Splash: undefined;
+  DeviceConnection: undefined;
+};
+
+type SplashScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Splash'>;
+
+type Props = {
+  navigation: SplashScreenNavigationProp;
+};
+
+const SplashScreen: React.FC<Props> = ({ navigation }) => {
   useEffect(() => {
+    console.log('SplashScreen useEffect triggered');
     const timer = setTimeout(() => {
-      if (navigation) {
-        navigation.replace('DeviceConnection');
-      } else {
-        console.error('Navigation prop is undefined in SplashScreen');
-      }
+      navigation.replace('DeviceConnection');
     }, 3000);
 
     return () => clearTimeout(timer);
@@ -16,9 +25,12 @@ const SplashScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>BluSenseX</Text>
+      <Text style={styles.title}>Mould Oscillation</Text>
       <ActivityIndicator size="large" color="#FFA500" style={styles.loader} />
-      <Text style={styles.version}>Version 1.0.0</Text>
+      <View style={styles.versionContainer}>
+        <Text style={styles.version}>Version 1.0.0</Text>
+        {/* <Text style={styles.version}>INNOVORTEX TECHNOLOGIES LLP</Text> */}
+      </View>
     </View>
   );
 };
@@ -31,7 +43,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1c2130',
   },
   title: {
-    fontSize: 48,
+    fontSize: 40,
     fontWeight: 'bold',
     color: '#efefef',
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
@@ -43,11 +55,15 @@ const styles = StyleSheet.create({
   loader: {
     marginTop: 20,
   },
-  version: {
+  versionContainer: {
     position: 'absolute',
     bottom: 20,
-    color: '#efefef',
+    alignItems: 'center',
+  },
+  version: {
+    color: '#ffffff',
     fontSize: 14,
+    marginVertical: 2,
   },
 });
 

@@ -30,7 +30,7 @@ const CalculationScreen: React.FC = () => {
     const value2 = parseFloat(inputValue2);
     if (!isNaN(value1) && !isNaN(value2)) {
       const P = 2 * value1 * value2;
-      const B = P / 100;
+      const B = P / 1000;
       const NS = 1 - B;
       setResult(NS);
       setError(null);
@@ -72,7 +72,7 @@ const CalculationScreen: React.FC = () => {
               placeholderTextColor="#999"
             />
           </View>
-          <Text style={styles.formula}>B = P / 100</Text>
+          <Text style={styles.formula}>B = P / 1000</Text>
           <Text style={styles.formula}>NS = 1 - B</Text>
           <View style={styles.buttonContainer}>
             <TouchableOpacity style={styles.button} onPress={calculateFormula}>
@@ -89,10 +89,10 @@ const CalculationScreen: React.FC = () => {
             </View>
           )}
         </View>
-        <View style={styles.zStrokeSection}>
+        {/* <View style={styles.zStrokeSection}>
           <Text style={styles.zStrokeText}>Z-Stroke</Text>
-          {/* Z-stroke content will be added here in the future */}
-        </View>
+          Z-stroke content will be added here in the future 
+        </View> */}
       </View>
     </SafeAreaView>
   );

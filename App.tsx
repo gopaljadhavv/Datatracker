@@ -18,7 +18,7 @@ const Tab = createBottomTabNavigator();
 const DataTabs = () => (
   <Tab.Navigator
     screenOptions={({ route }) => ({
-      tabBarStyle: { height: 50, backgroundColor: '#1c2130' },
+      tabBarStyle: { height: 50, backgroundColor: '#1c2130', paddingBottom:1 },
       tabBarActiveTintColor: '#FFA500', 
       tabBarInactiveTintColor: '#808080',
       headerStyle: { backgroundColor: '#1c2130' }, 
@@ -27,11 +27,11 @@ const DataTabs = () => (
       tabBarLabelStyle: { fontSize: 12 , fontWeight: 'bold'},
       tabBarIcon: ({ focused, color, size }) => {
         let iconName;
-        if (route.name === 'Gyroscope') {
+        if (route.name === 'Angle') {
           iconName = focused ? 'rotate-3d' : 'rotate-3d-variant';
-        } else if (route.name === 'Accelerometer') {
+        } else if (route.name === 'Speed') {
           iconName = focused ? 'speedometer' : 'speedometer-medium';
-        } else if (route.name === 'Temperature') {
+        } else if (route.name === 'All Sensors') {
           iconName = focused ? 'thermometer' : 'thermometer-lines';
         } else if (route.name === 'Calculation') {
           iconName = focused ? 'calculator' : 'calculator-variant';
@@ -41,19 +41,19 @@ const DataTabs = () => (
     })}
   >
     <Tab.Screen 
-      name="Gyroscope" 
-      component={GyroscopeScreen}
-      options={{ title: 'Gyroscope' }}
+      name="Angle" 
+      component={AngleScreen}
+      options={{ title: 'Angle' }}
     />
     <Tab.Screen 
-      name="Accelerometer" 
-      component={AccelerometerScreen}
-      options={{ title: 'Accelerometer' }}
+      name="Speed" 
+      component={SpeedScreen}
+      options={{ title: 'Speed' }}
     />
     <Tab.Screen 
-      name="Temperature" 
-      component={TemperatureScreen}
-      options={{ title: 'Temperature' }}
+      name="All Sensors" 
+      component={AllSensorsScreen}
+      options={{ title: 'All Sensors' }}
     />
     <Tab.Screen 
       name="Calculation" 
@@ -63,13 +63,14 @@ const DataTabs = () => (
   </Tab.Navigator>
 );
 
-const GyroscopeScreen = () => <DataDisplayScreen sensorType="Gyroscope" />;
-const AccelerometerScreen = () => <DataDisplayScreen sensorType="Accelerometer" />;
-const TemperatureScreen = () => <DataDisplayScreen sensorType="Temperature" />;
+const AngleScreen = () => <DataDisplayScreen sensorType="Gyroscope" />;
+const SpeedScreen = () => <DataDisplayScreen sensorType="Accelerometer" />;
+const AllSensorsScreen = () => <DataDisplayScreen sensorType="Temperature" />;
 
 const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isBluetoothReady, setIsBluetoothReady] = useState(false);
+  const [initialRoute, setInitialRoute] = useState('Splash'); // State to manage initial route
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -77,6 +78,7 @@ const App: React.FC = () => {
       try {
         await BluetoothManager.initialize();
         setIsBluetoothReady(true);
+        setInitialRoute('DeviceConnection');
       } catch (error) {
         console.error('Failed to initialize Bluetooth:', error);
         Alert.alert(
@@ -93,10 +95,6 @@ const App: React.FC = () => {
     initializeApp();
   }, []);
 
-  if (isLoading) {
-    return <SplashScreen navigation={undefined}  />;
-  }
-
   return (
     <SafeAreaProvider>
       <SensorProvider>
@@ -107,8 +105,14 @@ const App: React.FC = () => {
               cardStyle: { backgroundColor: '#F0F0F0' }  
             }}
           >
-            <Stack.Screen name="DeviceConnection" component={DeviceConnectionScreen} />
-            <Stack.Screen name="DataTabs" component={DataTabs} />
+            {isLoading ? (
+              <Stack.Screen name="Splash" component={SplashScreen} />
+            ) : (
+              <>
+                <Stack.Screen name="DeviceConnection" component={DeviceConnectionScreen} />
+                <Stack.Screen name="DataTabs" component={DataTabs} />
+              </>
+            )}
           </Stack.Navigator>
         </NavigationContainer>
       </SensorProvider>
