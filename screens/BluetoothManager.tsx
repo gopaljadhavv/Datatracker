@@ -63,7 +63,7 @@ class BluetoothManager {
 
   async startDeviceDiscovery() {
     if (this.isDiscovering) {
-      throw new Error('Device discovery already in progress');
+      throw new Error('Device discovery r in progress');
     }
 
     this.isDiscovering = true;
@@ -77,9 +77,12 @@ class BluetoothManager {
         ...(discoveredDevices || []),
       ];
 
-      this.onDevicesFoundCallback?.(allDevices);
+      // Filter out duplicate devices based on their address
+      const uniqueDevices = Array.from(new Map(allDevices.map(device => [device.address, device])).values());
 
-      return allDevices;
+      this.onDevicesFoundCallback?.(uniqueDevices);
+
+      return uniqueDevices;
     } catch (error) {
       console.error('Error during device discovery:', error);
       throw new Error('An error occurred during device discovery');
