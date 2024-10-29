@@ -6,6 +6,7 @@ import {
   Dimensions,
   SafeAreaView,
   ScrollView,
+  TextInput,
 } from 'react-native';
 import Svg, {Path, Line, G} from 'react-native-svg';
 import {useSensorData} from './SensorContext';
@@ -35,6 +36,8 @@ const DataDisplayScreen: React.FC<{ sensorType: SensorType }> = ({ sensorType })
   const { sensorData } = useSensorData();
   const [dataPoints, setDataPoints] = useState<number[][]>([[], [], []]);
   const [dataRange, setDataRange] = useState<[number, number]>([-1, 1]);
+  const [height, setHeight] = useState<number>(0);
+  const [displacement, setDisplacement] = useState<number>(0);
 
   const relevantData = useMemo(() => {
     return sensorType === 'Temperature'
@@ -72,6 +75,10 @@ const DataDisplayScreen: React.FC<{ sensorType: SensorType }> = ({ sensorType })
     updateDataPoints(relevantData);
     updateDataRange(relevantData);
   }, [relevantData, updateDataPoints, updateDataRange]);
+
+  useEffect(() => {
+    setDisplacement(sensorData.zStroke - height);
+  }, [sensorData.zStroke, height]);
 
 
   const getUnitLabel = (): string => {
@@ -184,15 +191,14 @@ const DataDisplayScreen: React.FC<{ sensorType: SensorType }> = ({ sensorType })
 
     const renderDataBlock = (
         title: string,
-        data: { x: number; y: number; z: number },
-        unit: string,
+        data: Array<{ label: string; value: number; unit: string }>
     ) => (
         <View style={styles.dataBlock}>
             <Text style={styles.blockTitle}>{title}</Text>
-            {Object.entries(data).map(([axis, value]) => (
-                <View key={axis} style={styles.dataRow}>
+            {data.map(({ label, value, unit }, index) => (
+                <View key={`${label}-${index}`} style={styles.dataRow}>
                     <View style={styles.dataLabelValueContainer}>
-                        <Text style={styles.dataLabel}>{axis.toUpperCase()}:</Text>
+                        <Text style={styles.dataLabel}>{label}:</Text>
                         <Text style={styles.dataValue}>{formatValue(value)}</Text>
                         <Text style={styles.dataUnit}>{unit}</Text>
                     </View>
@@ -203,77 +209,59 @@ const DataDisplayScreen: React.FC<{ sensorType: SensorType }> = ({ sensorType })
 
     return (
         <View style={styles.allSensorContainer}>
-            {renderDataBlock(
-                'Angle',
-                {
-                    x: sensorData.gyro.x,
-                    y: sensorData.gyro.y,
-                    z: sensorData.gyro.z,
-                },
-                'rad',
-            )}
-            <View style={styles.dataBlock}>
-                <Text style={styles.blockTitle}>Speed/Tilt</Text>
-                <View style={styles.dataRow}>
-                    <View style={styles.dataLabelValueContainer}>
-                        <Text style={styles.dataLabel}>X:</Text>
-                        <Text style={styles.dataValue}>
-                            {formatValue(sensorData.accel.x)}
-                        </Text>
-                        <Text style={styles.dataUnit}>m/s²</Text>
-                    </View>
-                </View>
-                <View style={styles.dataRow}>
-            <View style={styles.dataLabelValueContainer}>
-              <Text style={styles.dataLabel}>X:</Text>
-              <Text style={styles.dataValue}>
-                {formatValue(sensorData.tilt.x)}
-              </Text>
-              <Text style={styles.dataUnit}>°</Text>
-            </View>
-          </View>
-                <View style={styles.dataRow}>
-                    <View style={styles.dataLabelValueContainer}>
-                        <Text style={styles.dataLabel}>Y:</Text>
-                        <Text style={styles.dataValue}>
-                            {formatValue(sensorData.accel.y)}
-                        </Text>
-                        <Text style={styles.dataUnit}>m/s²</Text>
-                    </View>
-                </View>
-                <View style={styles.dataRow}>
-                <View style={styles.dataLabelValueContainer}>
-                  <Text style={styles.dataLabel}>Y:</Text>
-                  <Text style={styles.dataValue}>
-                    {formatValue(sensorData.tilt.y)}
-                  </Text>
-                  <Text style={styles.dataUnit}>°</Text>
-                </View>
-                </View>
-                
-                <View style={styles.dataRow}>
-                    <View style={styles.dataLabelValueContainer}>
-                        <Text style={styles.dataLabel}>Z:</Text>
-                        <Text style={styles.dataValue}>
-                            {formatValue(sensorData.accel.z)}
-                        </Text>
-                        <Text style={styles.dataUnit}>m/s²</Text>
-                    </View>
-                </View>
-            </View>
+            {/* Angle Block */}
+            {renderDataBlock('Angle', [
+                { label: 'X', value: sensorData.gyro.x, unit: 'rad' },
+                { label: 'Y', value: sensorData.gyro.y, unit: 'rad' },
+                { label: 'Z', value: sensorData.gyro.z, unit: 'rad' },
+            ])}
 
+            {/* Speed and Tilt Block */}
+            {renderDataBlock('Speed', [
+                { label: 'X', value: sensorData.accel.x, unit: 'm/s²' },
+                { label: 'X', value: sensorData.tilt.x, unit: 'mm' },
+                { label: 'Y', value: sensorData.accel.y, unit: 'm/s²' },
+                { label: 'Y', value: sensorData.tilt.y, unit: 'mm' },
+                { label: 'Z', value: sensorData.accel.z, unit: 'm/s²' },
+            ])}
+
+            {/* Z Stroke Block */}
             <View style={styles.dataBlock}>
                 <Text style={styles.blockTitle}>Z Stroke</Text>
                 <View style={styles.dataRow}>
                     <View style={styles.dataLabelValueContainer}>
-                        <Text style={styles.dataLabel}>Z Stroke:</Text>
+                        <Text style={styles.dataLabel}>Distance:</Text>
                         <Text style={styles.dataValue}>
                             {formatValue(sensorData.zStroke)}
                         </Text>
-                        <Text style={styles.dataUnit}>m</Text>
+                        <Text style={styles.dataUnit}>mm</Text>
+                    </View>
+                </View>
+                <View style={styles.dataRow}>
+                    <View style={styles.dataLabelValueContainer}>
+                        <Text style={styles.dataLabel}>Set Height:</Text>
+                        <TextInput
+                            style={styles.input}
+                            keyboardType="numeric"
+                            value={height.toString()}
+                            onChangeText={(text) => setHeight(Number(text))}
+                            placeholder="Enter height in mm"
+                            placeholderTextColor="#AAAAAA"
+                        />
+                    </View>
+                </View>
+                <View style={styles.dataRow}>
+                    <View style={styles.dataLabelValueContainer}>
+                        <Text style={styles.dataLabel}>Displacement:</Text>
+                        <Text style={styles.dataValue}>
+                            {formatValue(displacement)}
+                        </Text>
+                        <Text style={styles.dataUnit}>mm</Text>
                     </View>
                 </View>
             </View>
+
+            {/* Temperature Block */}
             <View style={styles.dataBlock}>
                 <Text style={styles.blockTitle}>Temperature</Text>
                 <View style={styles.dataRow}>
@@ -286,7 +274,7 @@ const DataDisplayScreen: React.FC<{ sensorType: SensorType }> = ({ sensorType })
             </View>
         </View>
     );
-}, [sensorData]);
+}, [sensorData, height, displacement]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -322,12 +310,12 @@ const styles = StyleSheet.create({
   },
   labelContainer: {
     position: 'absolute',
-    top: 10,
+    top: 9,
     left: 10,
   },
   valueContainer: {
     position: 'absolute',
-    top: 10,
+    top: 9,
     right: 10,
   },
   labelBackground: {
@@ -359,16 +347,16 @@ const styles = StyleSheet.create({
   dataBlock: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 15,
-    padding: 20,
-    marginBottom: 10,
+    padding: 15,
+    marginBottom: 7,
     width: '90%', // Adjust width for better centering
     alignItems: 'center',
   },
   blockTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
     color: ACCENT_COLOR,
-    marginBottom: 10,
+    marginBottom: 7,
     textAlign: 'center',
   },
   dataRow: {
@@ -401,6 +389,19 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: TEXT_COLOR,
     marginRight: 5,
+  },
+  input: {
+    width: '40%', // Make it responsive and match other fields
+    height: 35, // Set a comfortable height to match other fields
+    borderWidth: 1, // Optional: Add a border if other fields have borders
+    borderColor: ACCENT_COLOR, // Match the border color with other fields
+    borderRadius: 5,
+    paddingHorizontal: 10, // Add padding for better text placement
+    marginTop: -3, // Space above the input
+    marginBottom: -3, // Space below the input
+    color: '#FFFFFF', // Text color to match other fields
+    backgroundColor: 'rgba(255, 255, 255, 0.1)', // Semi-transparent background
+    fontSize: 14, // Increase font size for better readability
   },
 });
 

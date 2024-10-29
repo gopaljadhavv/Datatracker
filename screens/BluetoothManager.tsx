@@ -1,6 +1,7 @@
 import RNBluetoothClassic, {
   BluetoothDevice,
 } from 'react-native-bluetooth-classic';
+import BleManager from 'react-native-ble-manager';
 import {Platform, PermissionsAndroid} from 'react-native';
 
 class BluetoothManager {
@@ -19,6 +20,7 @@ class BluetoothManager {
     try {
       await this.checkBluetoothEnabled();
       await this.requestPermissions();
+      BleManager.start({ showAlert: false });
     } catch (error) {
       console.error('Bluetooth initialization failed:', error);
       throw new Error(
@@ -31,14 +33,21 @@ class BluetoothManager {
     try {
       const enabled = await RNBluetoothClassic.isBluetoothEnabled();
       if (!enabled) {
-        await RNBluetoothClassic.requestBluetoothEnabled();
+        const requestResult = await RNBluetoothClassic.requestBluetoothEnabled();
+        if (!requestResult) {
+          throw new Error('User did not enable Bluetooth');
+        }
       }
     } catch (error) {
-      console.error(
-        'Bluetooth Classic is not available on this device:',
-        error,
-      );
-      throw new Error('Bluetooth Classic is not available on this device.');
+      console.error('Bluetooth Classic is not available on this device:', error);
+      await this.checkBLEEnabled();
+    }
+  }
+
+  private async checkBLEEnabled() {
+    const permissionGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
+    if (!permissionGranted) {
+      await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
     }
   }
 
@@ -63,7 +72,7 @@ class BluetoothManager {
 
   async startDeviceDiscovery() {
     if (this.isDiscovering) {
-      throw new Error('Device discovery r in progress');
+      throw new Error('Device discovery is already in progress');
     }
 
     this.isDiscovering = true;
@@ -77,11 +86,9 @@ class BluetoothManager {
         ...(discoveredDevices || []),
       ];
 
-      // Filter out duplicate devices based on their address
       const uniqueDevices = Array.from(new Map(allDevices.map(device => [device.address, device])).values());
 
       this.onDevicesFoundCallback?.(uniqueDevices);
-
       return uniqueDevices;
     } catch (error) {
       console.error('Error during device discovery:', error);
@@ -94,7 +101,7 @@ class BluetoothManager {
   async connectToDevice(device: BluetoothDevice) {
     if (this.isConnecting) {
       throw new Error(
-        'A connection attempt is already in progress. Please wait or try again in sometime.',
+        'A connection attempt is already in progress. Please wait or try again later.',
       );
     }
 
@@ -103,10 +110,8 @@ class BluetoothManager {
     try {
       let connected = false;
       if (device.bonded) {
-        // For paired devices, attempt to connect directly
         connected = await this.attemptConnection(device);
       } else {
-        // For unpaired devices, attempt to pair first
         const paired = await this.pairDevice(device);
         if (paired) {
           connected = await this.attemptConnection(device);
@@ -125,11 +130,7 @@ class BluetoothManager {
       }
     } catch (error) {
       console.error('Error connecting to device:', error);
-      if (error instanceof Error) {
-        throw error;
-      } else {
-        throw new Error('Failed to connect to the device');
-      }
+      throw new Error('Failed to connect to the device');
     } finally {
       this.isConnecting = false;
     }
@@ -145,48 +146,42 @@ class BluetoothManager {
       new Promise<boolean>((_, reject) =>
         setTimeout(
           () => reject(new Error('Connection timeout')),
-          5000, // 30 seconds timeout
+          5000, // 5 seconds timeout
         ),
       ),
     ]);
   }
 
   private parseData(data: string) {
-    // console.log('Parsing data:', data);
-
-    const matches = data.match(
-      /\$gyroX:([-+]?\d*\.?\d+),gyroY:([-+]?\d*\.?\d+),gyroZ:([-+]?\d*\.?\d+),accX:([-+]?\d*\.?\d+),accY:([-+]?\d*\.?\d+),accZ:([-+]?\d*\.?\d+),tiltX\(degree\):([-+]?\d*\.?\d+),tiltY\(degree\):([-+]?\d*\.?\d+),zStroke\(m\):([-+]?\d*\.?\d+),temperature:([-+]?\d*\.?\d+)&/,
-    );
-
-    if (matches) {
-      const parsedData = {
+    try {
+      const parsedData = JSON.parse(data);
+      const sensorData = {
         gyro: {
-          x: parseFloat(matches[1]),
-          y: parseFloat(matches[2]),
-          z: parseFloat(matches[3]),
+          x: parseFloat(parsedData.gyroX),
+          y: parseFloat(parsedData.gyroY),
+          z: parseFloat(parsedData.gyroZ),
         },
         accel: {
-          x: parseFloat(matches[4]),
-          y: parseFloat(matches[5]),
-          z: parseFloat(matches[6]),
+          x: parseFloat(parsedData.accX),
+          y: parseFloat(parsedData.accY),
+          z: parseFloat(parsedData.accZ),
         },
         tilt: {
-          x: parseFloat(matches[7]),
-          y: parseFloat(matches[8]),
+          x: parseFloat(parsedData.tiltX),
+          y: parseFloat(parsedData.tiltY),
         },
-        zStroke: parseFloat(matches[9]),
-        temp: parseFloat(matches[10]), // Correctly capturing temperature
+        zStroke: parseFloat(parsedData.distance),
+        temp: parseFloat(parsedData.temperature),
       };
 
-      this.onDataReceivedCallback?.(parsedData);
-    } else {
-      console.error('Unable to parse data:', data);
+      this.onDataReceivedCallback?.(sensorData);
+    } catch (error) {
+      console.error('Unable to parse data:', data, error);
     }
   }
 
   private monitorData(device: BluetoothDevice) {
     device.onDataReceived(({data}) => {
-      // console.log('Raw data received:', data.toString());
       this.parseData(data.toString());
     });
   }
@@ -256,28 +251,20 @@ class BluetoothManager {
   async pairDevice(device: BluetoothDevice): Promise<boolean> {
     try {
       if (Platform.OS === 'android') {
-        // For Android, we need to use the createBond method if available
         if ('createBond' in RNBluetoothClassic) {
-          const bondState = await (RNBluetoothClassic as any).createBond(
-            device.address,
-          );
+          const bondState = await (RNBluetoothClassic as any).createBond(device.address);
           console.log('Bond state after pairing attempt:', bondState);
           return bondState === 'bonded';
         } else {
-          console.warn(
-            'createBond method not available, assuming device is already paired',
-          );
+          console.warn('createBond method not available, assuming device is already paired');
           return true;
         }
       } else {
-        // For iOS, pairing is typically handled by the OS
-        // We'll assume it's already paired if we can see it
         console.log('Skipping pairing step on iOS');
         return true;
       }
     } catch (error) {
       console.error('Error pairing device:', error);
-      // Instead of throwing an error, we'll return false
       return false;
     }
   }
